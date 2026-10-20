@@ -93,4 +93,7 @@ Pipelinen (jobbet *Image* i `.github/workflows/ci.yml`) bygger `api` och `client
 
 ## Deploy
 
-Se *I molnet (M6)* ovan: staging skapas en gång med `infra/azure/skapa-staging.sh`, och pipelinen byter image vid varje merge till `main`.
+Två deployjobb efter varje merge till `main`, oberoende av varandra (se `docs/pipeline.md`):
+
+- *Deploy → Azure staging* (M6): staging skapas en gång med `infra/azure/skapa-staging.sh`, och jobbet byter image till commitens sha.
+- *Deploy → Azure Functions* (M7): function-appen skapas en gång med `infra/azure/skapa-funktion.sh`, och jobbet lägger upp `functions/` (`npm ci --omit=dev` + `Azure/functions-action`) och röktestar `process-image`. Kräver variabeln `AZURE_FUNCTION_APP` på miljön `azure-staging`; samma OIDC-identitet som M6. Funktionsnyckeln ligger inte i GitHub – jobbet hämtar den och maskerar den.
