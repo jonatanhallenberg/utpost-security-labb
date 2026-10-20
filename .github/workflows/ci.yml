@@ -1,4 +1,4 @@
-# Utpost – CI (M1, utbyggd i M4 och M5)
+# Utpost – CI (M1, utbyggd i M4, M5, M6, M7)
 # Varje PR mot main och varje push till main: lint, formatkontroll, typkontroll, tester och bygge.
 # Rött någonstans = PR:en får inte mergas (branch protection kräver "Kvalitet", "Bygg", "Integration" och "Image").
 # M4: jobbet Image bygger Docker-imagerna. På PR byggs de bara (går Dockerfilen igenom?),
@@ -164,7 +164,8 @@ jobs:
     name: Deploy → Azure staging
     runs-on: ubuntu-latest
     needs: [image, integration]                      # samma image som Image publicerade; aldrig en deploy av kod med röda API-tester
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # M8: körs bara om miljön azure-staging har sina variabler – i ett repo utan Azure (labbparen) hoppas jobbet över i stället för att bli rött.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_APP != ''
     environment:
       name: azure-staging                            # variablerna (id:n och adressen) ligger på miljön, inte i repot
       url: ${{ vars.AZURE_URL }}
@@ -244,7 +245,7 @@ jobs:
     name: Deploy → Azure Functions
     runs-on: ubuntu-latest
     needs: [quality]                                 # functions/ har inga egna tester – men ingen deploy av en röd main
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_FUNCTION_APP != ''   # M8: hoppas över utan Azure-variabler, som Deploy → Azure staging
     environment:
       name: azure-staging                            # AZURE_FUNCTION_APP ligger här bredvid id:n från M6
     permissions:

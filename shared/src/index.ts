@@ -109,13 +109,20 @@ export interface LoginRequest {
 }
 export interface LoginResponse {
   token: string
-  // OBS: i dag skickar API:et hela databasraden, inklusive password_hash.
-  // Typen säger User – verkligheten säger mer. TypeScript tar inte bort fält,
-  // det här är en säkerhetsskuld (skuld 9) som lagas i M8, inte här.
+  // M8: API:et skickar bara de här fälten (publicUser i api/src/lib/auth.js) – inte raden.
+  // Förut gick hela raden ut, med password_hash. TypeScript tar inte bort fält; koden gör det.
   user: User
 }
 
-/** Felsvar från API:et: { error: '...' } */
+/** POST /api/auth/register */
+export interface RegisterRequest {
+  email: string
+  password: string
+  displayName: string
+}
+
+/** Felsvar från API:et: { error: '...' }. Vid 400 från valideringen (M8) även vad som var fel, fält för fält. */
 export interface ApiError {
   error: string
+  issues?: { path: string; message: string }[]
 }

@@ -33,8 +33,8 @@ npm run dev:client                    # Vue-klienten på :3001 med hot reload, /
 
 ## Struktur
 
-- `api/` – Express + Postgres (Drizzle) + MongoDB (driver). REST under `/api`, GraphQL på `/graphql` (`api/src/graphql/`, GraphiQL i browsern på http://localhost:4000/graphql). Relationerna hämtas med DataLoader (`loaders.js`, M5) – en databasfråga per lista, inte per rad; varje svar säger vad det kostade i `extensions.databasfragor`. Turernas mätpunkter ligger i MongoDB sedan M5 (`npm run migrate:logs`). Kräver Node 22.18+ (routes skrivs i TypeScript och körs direkt av Node). `api/Dockerfile` byggs från repots rot.
-- `client/` – ny klient i Vue 3 + TypeScript (port 3001). GraphQL med urql (`src/urql.ts`, cache i klienten) och typer genererade ur schemat (`codegen.ts` → `src/gql/`, M5). `client/Dockerfile` är multi-stage: Node bygger, nginx serverar (`client/nginx.conf.template`, renderas vid start).
+- `api/` – Express + Postgres (Drizzle) + MongoDB (driver). Appen byggs i `src/app.js` och startas i `src/index.js` (M8: så går den att testa). Validering med Zod (`src/lib/schemas.js`), lösenord med scrypt (`src/lib/password.js`). REST under `/api`, GraphQL på `/graphql` (`api/src/graphql/`, GraphiQL i browsern på http://localhost:4000/graphql). Relationerna hämtas med DataLoader (`loaders.js`, M5) – en databasfråga per lista, inte per rad; varje svar säger vad det kostade i `extensions.databasfragor`. Turernas mätpunkter ligger i MongoDB sedan M5 (`npm run migrate:logs`). Kräver Node 22.18+ (routes skrivs i TypeScript och körs direkt av Node). `api/Dockerfile` byggs från repots rot.
+- `client/` – ny klient i Vue 3 + TypeScript (port 3001). Inloggning och token i minnet (M8: `src/stores/auth.ts`, `src/lib/token.ts`). GraphQL med urql (`src/urql.ts`, cache i klienten) och typer genererade ur schemat (`codegen.ts` → `src/gql/`, M5). `client/Dockerfile` är multi-stage: Node bygger, nginx serverar (`client/nginx.conf.template`, renderas vid start).
 - `functions/` – bildbearbetningen som en Azure Function (M7): HTTP-triggern `process-image` (`src/process-image.js`, Node v4-modellen) och bildkoden (`src/image.js`, ren JS). Eget npm-paket med egen `package-lock.json` – **inte** en workspace, så att deploypaketet är självbärande. Körs lokalt med Core Tools (`func start`).
 - `shared/` – API-kontraktet som TypeScript-typer (`@utpost/shared`), används av `api/` och `client/`.
 - `infra/azure/` – staging i Azure Container Apps (M6): `staging.yaml` beskriver appen (client + api + postgres + mongo som sidecars), `skapa-staging.sh` skapar den en gång. Pipelinen byter sedan bara image. `skapa-funktion.sh` (M7) skapar bildfunktionen i Azure Functions.
@@ -51,7 +51,7 @@ npm run dev:client                    # Vue-klienten på :3001 med hot reload, /
     npm run codegen           # typer ur GraphQL-schemat → client/src/gql/ (körs av typecheck)
     npm run typecheck         # codegen + vue-tsc i client/ + tsc i api/ – kedjan schema → fråga → vy kontrolleras här
     npm test                  # klientens tester (Vitest + Testing Library), en gång, avslutar
-    npm run test:api          # integrationstester mot GraphQL-API:et – kräver databaserna igång, seedade och migrerade (M5)
+    npm run test:api          # integrationstester mot GraphQL-API:et (M5) och säkerhetstesterna mot REST (M8) – kräver databaserna igång, seedade och migrerade
     npm run build             # vite build av client/
     npm run mongo:smoke [id]  # skriver en tur ur Postgres som ett dokument i MongoDB och läser tillbaka
     npm run migrate:logs      # alla turer med mätpunkter → MongoDB, med kontroll av antalet (M5)
@@ -76,9 +76,23 @@ npm run dev:api                                 # i en annan terminal
 npm run mat                                     # mätningen
 ```
 
-`local.settings.json` är funktionens lokala miljö och är gitignorerad – committa den aldrig. `AzureWebJobsStorage` får vara tom lokalt (HTTP-triggern behöver inget storage-konto, Azure gör det). I compose (`docker compose up --build`) når API-containern funktionen på din dator via `host.docker.internal:7071`. Uppladdningen finns i klienten på turens sida (`/turer/:id`): bara bredd, höjd och filnamn lämnar browsern – bytes skickas inte än.
+`local.settings.json` är funktionens lokala miljö och är gitignorerad – committa den aldrig. `AzureWebJobsStorage` får vara tom lokalt (HTTP-triggern behöver inget storage-konto, Azure gör det). I compose (`docker compose up --build`) når API-containern funktionen på din dator via `host.docker.internal:7071`. Uppladdningen finns i klienten på `/turer/:id/bild` (M8: kräver inloggning): bara bredd, höjd och filnamn lämnar browsern – bytes skickas inte än.
 
 I Azure: `infra/azure/skapa-funktion.sh` skapar function-appen (Flex Consumption, Node 22) och kopplar den till staging (`CONTAINER_APP=…`): `IMAGE_FUNCTION_URL` som variabel, nyckeln som secret `image-function-key`. Beslutet, mätningen och kallstarten står i `docs/decisions/serverless.md`.
+
+## Säkrad (M8)
+
+Skuld 9 var *öppna endpoints, ingen validering av indata, strängkonkatenerade queries* – och, visade det sig, lösenord i klartext som API:et skickade tillbaka till klienten. Det här är vad som gäller nu:
+
+- **Inloggning:** `POST /api/auth/login` svarar med en JWT (1 h, HS256) och den publika användaren – aldrig raden. Lösenorden lagras som scrypt-hash (`api/src/lib/password.js`). Seedade konton: `redaktor@utpost.se` (rollen editor) och `medlem@utpost.se` (member), lösenord `hemligt123` för alla. Fel e-post och fel lösenord ger samma svar.
+- **Skyddade routes:** `requireUser` (401 utan giltig token) på allt som skriver – `POST /api/tours`, `DELETE /api/tours/:id`, `POST /api/photos` – och ägarkontroll mot raden i databasen (403 på någon annans tur). `requireRole('editor')` finns för redaktionens routes. Kontrollen sitter i API:et; klientens route guard (`/turer/:id/bild`) är bara UX.
+- **Validering:** varje request-body går genom `validate(schema)` (`api/src/lib/validate.js`) mot ett Zod-schema i `api/src/lib/schemas.js` innan routen kör. Ogiltig indata → `400 { error: 'ogiltig indata', issues: [{ path, message }] }`. Id i adressen kontrolleras med `idParam`.
+- **Parametriserade frågor överallt:** sökningen (`/api/guides/search?q=`) skickar sökordet som `$1`, inte i SQL-strängen.
+- **Fel blir svar:** felhanteraren sist i `api/src/app.js` svarar 400/413/500 – ett anrop hänger aldrig. `express.json` tar högst 1 MB.
+- **Testerna:** `api/src/routes/routes.test.js` – ett test per lagat hål, rött före fixen. Körs av `npm run test:api` (jobbet Integration).
+- **Klienten:** token i minnet (`client/src/lib/token.ts`), Pinia-storen `auth` (`client/src/stores/auth.ts`), `LoginView` på `/logga-in`. En omladdning loggar ut – refresh-token är inte byggt (känd brist, `docs/security.md`).
+
+Checklistan: `docs/security.md`.
 
 ## I molnet (M6)
 

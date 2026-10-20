@@ -24,8 +24,9 @@ Vi ärvde en klient utan ett enda test och ett API vars kontrakt bara fanns i hu
 | Turvyn (tabell) | komponent | nästa vy att porta – test skrivs i samma PR | nej |
 | Turdetalj | komponent | beroende av `elevationGain` som redan är testad; kan vänta | nej |
 | GraphQL-API:et (`api/src/graphql/`) | integration | resolvers mot riktig databas: N+1-regression, inloggningskrav, fel med 200, migreringen av loggar | ja, 6 st (M5) |
+| REST-API:ets säkerhet (`api/src/routes/routes.test.js`) | integration | ett test per lagat hål ur `docs/security.md`, rött före fixen: 401/403 på skyddade routes, inget `password_hash` i svar, 400 på ogiltig indata, sökning med citattecken | ja, 13 st (M8) |
 | `api.ts` | ingen egen | tre rader; testas indirekt genom komponenttesterna | – |
-| Inloggning (Pinia-store) | enhet på storen | logik utan UI; komponenttest på LoginView när den portas | nej |
+| Inloggning (`LoginView` + Pinia-storen `auth`) | komponent | fel uppgifter visas, token hamnar i minnet och aldrig i `localStorage`, redirect dit man var på väg | ja, 2 st (M8) |
 | Routern | ingen | Vue Routers beteende är inte vårt att testa | – |
 
 ## Regler
