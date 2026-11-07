@@ -29,12 +29,12 @@ authRouter.post(
   '/register',
   validate(registerSchema),
   wrap(async (req, res) => {
-    const { email, password, displayName } = req.body;
+    const { email, password, displayName, role = 'member' } = req.body;
     const exists = await pool.query('select 1 from users where email = $1', [email]);
     if (exists.rows[0]) return res.status(409).json({ error: 'e-postadressen används redan' });
     const result = await pool.query(
-      'insert into users (email, password_hash, display_name) values ($1,$2,$3) returning *',
-      [email, await hashPassword(password), displayName],
+      'insert into users (email, password_hash, display_name, role) values ($1,$2,$3,$4) returning *',
+      [email, await hashPassword(password), displayName, role],
     );
     res.status(201).json({ token: sign(result.rows[0]), user: publicUser(result.rows[0]) });
   }),
